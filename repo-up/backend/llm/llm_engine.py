@@ -2,18 +2,37 @@ import os
 from typing import Optional, Tuple
 from .provider import get_provider
 from .context_builder import build_context
-from analysis.repair.patch_model import Patch, validate_patch, TIER_2
+from analysis.repair.patch_model import (
+    Patch,
+    validate_patch,
+    TIER_2,
+    REPAIR_METHOD_LLM_BASED,
+    REPAIR_METHOD_CONTEXT_AWARE_HYBRID,
+)
 
-def explain_and_suggest_patch(finding_dict: dict, project_root: str) -> Tuple[str, Optional[Patch]]:
+def explain_and_suggest_patch(
+    finding_dict: dict,
+    project_root: str,
+    mode: str = "context_aware_hybrid",
+    runtime_output: Optional[str] = None,
+) -> Tuple[str, Optional[Patch]]:
     """
     Generates an explanation and optional candidate patch using the configured LLM.
+    Supports:
+      - mode="llm_based": Method 3 (minimal context baseline)
+      - mode="context_aware_hybrid": Method 4 (AST + dependency-graph + runtime evidence)
     Strictly validates any returned patch through Phase 5 validation.
     """
     provider = get_provider()
     if not provider:
         return ("AI Explanation unavailable. No provider configured.", None)
         
-    context = build_context(finding_dict, project_root)
+    context = build_context(
+        finding_dict,
+        project_root,
+        mode=mode,
+        runtime_output=runtime_output,
+    )
     
     explanation = "AI Explanation unavailable."
     try:
@@ -22,6 +41,11 @@ def explain_and_suggest_patch(finding_dict: dict, project_root: str) -> Tuple[st
         explanation = "AI Explanation failed due to an error."
         
     patch_obj = None
+    target_repair_method = (
+        REPAIR_METHOD_CONTEXT_AWARE_HYBRID
+        if mode == "context_aware_hybrid"
+        else REPAIR_METHOD_LLM_BASED
+    )
     try:
         patch_dict = provider.generate_patch(context)
         if patch_dict:
@@ -41,8 +65,9 @@ def explain_and_suggest_patch(finding_dict: dict, project_root: str) -> Tuple[st
                 end_col=0,
                 old_text=old_text,
                 new_text=new_text,
-                description="AI-generated suggestion — not yet verified.",
-                verification_status="not_verified"
+                description=f"AI suggestion ({target_repair_method}) — not yet verified.",
+                verification_status="not_verified",
+                repair_method=target_repair_method,
             )
             
             # Step 5: Patch Validation

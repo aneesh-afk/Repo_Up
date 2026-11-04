@@ -42,8 +42,25 @@ class DummyProvider(LLMProvider):
         )
         
     def generate_patch(self, context: dict) -> Optional[Dict[str, Any]]:
-        # Dummy provider doesn't generate patches, safely returning None.
-        # To truly test patch logic, one would implement an active provider.
+        # Dummy provider doesn't generate patches by default.
+        # When test mode is enabled, it generates a validated mock patch for testing.
+        if os.environ.get("LLM_TEST_MOCK_PATCH") == "1":
+            file_name = context.get("file", "")
+            line_num = context.get("line", 1)
+            snippet = context.get("source_snippet", "")
+            lines = snippet.splitlines(keepends=True)
+            if lines:
+                start_idx = max(0, line_num - 1 - 15)
+                rel_idx = line_num - 1 - start_idx
+                old_line = lines[rel_idx] if 0 <= rel_idx < len(lines) else lines[0]
+                indent = old_line[:len(old_line) - len(old_line.lstrip())]
+                new_line = f"{indent}# [AI Fix Applied]\n{old_line}"
+                return {
+                    "file": file_name,
+                    "old_text": old_line,
+                    "new_text": new_line,
+                    "reason": "Simulated AI repair",
+                }
         return None
 
 def get_provider() -> Optional[LLMProvider]:

@@ -1,21 +1,19 @@
 """
-analysis/repair/repair_engine.py — Phase 5 Repair Engine.
+analysis/repair/repair_engine.py — Four-Mode Repair Engine.
 
-Orchestrates candidate patch generation for a given finding.
+Orchestrates candidate patch generation for findings across the four repair modes:
+- Method 1: Rule-Based Repair (predefined deterministic rules and patterns)
+- Method 2: Template-Based Repair (predefined secure code templates)
+- Method 3: LLM-Based Repair (AI language model with minimal localized context)
+- Method 4: Context-Aware Hybrid Repair (combines code context, dependency information,
+  and cascade repair techniques)
 
 Usage
 -----
     from analysis.repair.repair_engine import get_candidate_patch
-    response = get_candidate_patch(finding, project_root)
+    response = get_candidate_patch(finding, project_root, mode="context_aware_hybrid")
 
 The engine NEVER modifies files. It only produces candidate Patch objects.
-
-Architecture
-------------
-1. Look up RepairSpec in repair_registry.
-2. If Tier 1 and autofix_available: load the handler module and call handler_fn.
-3. Run patch validation (patch_model.validate_patch) on the candidate.
-4. Return the RepairResponse with patch (or None) and verification_status.
 """
 
 from __future__ import annotations
@@ -26,10 +24,19 @@ import os
 from typing import Optional
 
 from analysis.repair.patch_model import (
-    Patch, PatchValidationError, validate_patch,
-    TIER_1, TIER_2, TIER_3,
+    Patch,
+    PatchValidationError,
+    validate_patch,
+    TIER_1,
+    TIER_2,
+    TIER_3,
+    REPAIR_METHOD_RULE_BASED,
+    REPAIR_METHOD_TEMPLATE_BASED,
+    REPAIR_METHOD_LLM_BASED,
+    REPAIR_METHOD_CONTEXT_AWARE_HYBRID,
 )
 from analysis.repair.repair_registry import get_repair, RepairSpec
+from analysis.repair.template_engine import apply_template, has_template
 
 log = logging.getLogger(__name__)
 
@@ -45,6 +52,7 @@ class RepairResponse:
         patch: Optional[Patch],
         validation_error: Optional[str],
         explanation: Optional[str],
+        repair_method: Optional[str] = None,
     ):
         self.finding = finding
         self.repair_available = repair_available
@@ -52,6 +60,7 @@ class RepairResponse:
         self.patch = patch
         self.validation_error = validation_error
         self.explanation = explanation
+        self.repair_method = repair_method
         self.verification_status = "not_verified"
 
     def to_dict(self) -> dict:
@@ -60,6 +69,7 @@ class RepairResponse:
             "repair_available": self.repair_available,
             "tier": self.tier,
             "verification_status": self.verification_status,
+            "repair_method": self.repair_method or (self.patch.repair_method if self.patch else None),
         }
         if self.patch:
             d["patch"] = self.patch.to_dict()
@@ -70,27 +80,16 @@ class RepairResponse:
         return d
 
 
-def get_candidate_patch(
-    finding: dict,
-    project_root: str,
-) -> RepairResponse:
-    """Generate a candidate patch for a finding (if a repair exists).
+# ---------------------------------------------------------------------------
+# Individual Repair Mode Generators
+# ---------------------------------------------------------------------------
 
-    Parameters
-    ----------
-    finding      : A finding dict as returned by to_dict() on a Finding object.
-    project_root : Absolute path to the extracted project directory.
-                   Used for path-escape validation.
-
-    Returns
-    -------
-    RepairResponse — always returned; patch field is None if no fix available.
-    """
+def get_rule_based_patch(finding: dict, project_root: str) -> RepairResponse:
+    """Method 1: Rule-Based Repair using predefined syntactic substitution rules."""
     rule_id = finding.get("rule_id", "")
     language = finding.get("language") or _infer_language(finding.get("file", ""))
 
     spec = get_repair(rule_id, language)
-
     if spec is None:
         return RepairResponse(
             finding=finding,
@@ -99,9 +98,9 @@ def get_candidate_patch(
             patch=None,
             validation_error=None,
             explanation=None,
+            repair_method=REPAIR_METHOD_RULE_BASED,
         )
 
-    # Tier 3 — explanation only
     if spec.tier == TIER_3:
         return RepairResponse(
             finding=finding,
@@ -110,9 +109,9 @@ def get_candidate_patch(
             patch=None,
             validation_error=None,
             explanation=spec.description,
+            repair_method=REPAIR_METHOD_RULE_BASED,
         )
 
-    # Tier 2 — suggested (no auto-patch)
     if spec.tier == TIER_2 or not spec.autofix_available:
         return RepairResponse(
             finding=finding,
@@ -121,9 +120,9 @@ def get_candidate_patch(
             patch=None,
             validation_error=None,
             explanation=spec.description,
+            repair_method=REPAIR_METHOD_RULE_BASED,
         )
 
-    # Tier 1 — attempt to generate a patch
     source_lines = _load_source_lines(finding.get("file", ""), project_root)
     if source_lines is None:
         return RepairResponse(
@@ -133,6 +132,7 @@ def get_candidate_patch(
             patch=None,
             validation_error="Source file could not be read.",
             explanation=spec.description,
+            repair_method=REPAIR_METHOD_RULE_BASED,
         )
 
     patch = _call_handler(spec, source_lines, finding)
@@ -144,9 +144,11 @@ def get_candidate_patch(
             patch=None,
             validation_error="Repair handler could not generate a patch (pattern not found on the specified line).",
             explanation=spec.description,
+            repair_method=REPAIR_METHOD_RULE_BASED,
         )
 
-    # Validate the candidate patch
+    patch.repair_method = REPAIR_METHOD_RULE_BASED
+
     try:
         validate_patch(patch, project_root, source_lines)
     except PatchValidationError as exc:
@@ -158,6 +160,7 @@ def get_candidate_patch(
             patch=None,
             validation_error=str(exc),
             explanation=spec.description,
+            repair_method=REPAIR_METHOD_RULE_BASED,
         )
 
     return RepairResponse(
@@ -167,7 +170,187 @@ def get_candidate_patch(
         patch=patch,
         validation_error=None,
         explanation=spec.description,
+        repair_method=REPAIR_METHOD_RULE_BASED,
     )
+
+
+def get_template_based_patch(finding: dict, project_root: str) -> RepairResponse:
+    """Method 2: Template-Based Repair applying predefined secure code templates."""
+    source_lines = _load_source_lines(finding.get("file", ""), project_root)
+    if source_lines is None:
+        return RepairResponse(
+            finding=finding,
+            repair_available=False,
+            tier=None,
+            patch=None,
+            validation_error="Source file could not be read.",
+            explanation=None,
+            repair_method=REPAIR_METHOD_TEMPLATE_BASED,
+        )
+
+    patch = apply_template(finding, source_lines)
+    if patch is None:
+        return RepairResponse(
+            finding=finding,
+            repair_available=False,
+            tier=None,
+            patch=None,
+            validation_error=None,
+            explanation="No applicable secure code template found for this finding.",
+            repair_method=REPAIR_METHOD_TEMPLATE_BASED,
+        )
+
+    patch.repair_method = REPAIR_METHOD_TEMPLATE_BASED
+
+    try:
+        validate_patch(patch, project_root, source_lines)
+    except PatchValidationError as exc:
+        return RepairResponse(
+            finding=finding,
+            repair_available=True,
+            tier=patch.tier,
+            patch=None,
+            validation_error=f"Template patch validation failed: {exc}",
+            explanation=patch.description,
+            repair_method=REPAIR_METHOD_TEMPLATE_BASED,
+        )
+
+    return RepairResponse(
+        finding=finding,
+        repair_available=True,
+        tier=patch.tier,
+        patch=patch,
+        validation_error=None,
+        explanation=patch.description,
+        repair_method=REPAIR_METHOD_TEMPLATE_BASED,
+    )
+
+
+def get_llm_based_patch(finding: dict, project_root: str) -> RepairResponse:
+    """Method 3: LLM-Based Repair using minimal localized context."""
+    from llm.llm_engine import explain_and_suggest_patch
+
+    explanation, patch = explain_and_suggest_patch(
+        finding, project_root, mode="llm_based"
+    )
+
+    if patch:
+        patch.repair_method = REPAIR_METHOD_LLM_BASED
+        return RepairResponse(
+            finding=finding,
+            repair_available=True,
+            tier=TIER_2,
+            patch=patch,
+            validation_error=None,
+            explanation=explanation,
+            repair_method=REPAIR_METHOD_LLM_BASED,
+        )
+
+    return RepairResponse(
+        finding=finding,
+        repair_available=bool(explanation and "unavailable" not in explanation),
+        tier=TIER_3 if explanation else None,
+        patch=None,
+        validation_error=None,
+        explanation=explanation,
+        repair_method=REPAIR_METHOD_LLM_BASED,
+    )
+
+
+def get_hybrid_patch(finding: dict, project_root: str) -> RepairResponse:
+    """
+    Method 4: Context-Aware Hybrid Repair.
+    Combines rule-based checks, secure code templates, and context-enriched LLM prompting
+    (with AST enclosing definitions, imports, and file-level dependency graphs).
+    """
+    # 1. First priority: Deterministic Rule-Based Fix
+    resp = get_rule_based_patch(finding, project_root)
+    if resp.patch is not None:
+        resp.repair_method = REPAIR_METHOD_RULE_BASED
+        return resp
+
+    # 2. Second priority: Parameterized Secure Code Template
+    resp_tpl = get_template_based_patch(finding, project_root)
+    if resp_tpl.patch is not None:
+        resp_tpl.repair_method = REPAIR_METHOD_TEMPLATE_BASED
+        return resp_tpl
+
+    # 3. Third priority: Context-Aware LLM-Assisted Generation
+    from llm.llm_engine import explain_and_suggest_patch
+
+    explanation, patch = explain_and_suggest_patch(
+        finding, project_root, mode="context_aware_hybrid"
+    )
+
+    if patch:
+        patch.repair_method = REPAIR_METHOD_CONTEXT_AWARE_HYBRID
+        return RepairResponse(
+            finding=finding,
+            repair_available=True,
+            tier=TIER_2,
+            patch=patch,
+            validation_error=None,
+            explanation=explanation,
+            repair_method=REPAIR_METHOD_CONTEXT_AWARE_HYBRID,
+        )
+
+    # If it's a known rule with Tier 2 / Tier 3 specification from registry
+    if resp.tier in (TIER_2, TIER_3):
+        return RepairResponse(
+            finding=finding,
+            repair_available=resp.repair_available,
+            tier=resp.tier,
+            patch=None,
+            validation_error=resp.validation_error or resp_tpl.validation_error,
+            explanation=resp.explanation,
+            repair_method=REPAIR_METHOD_CONTEXT_AWARE_HYBRID,
+        )
+
+    has_repair = bool(resp.repair_available or resp_tpl.repair_available or (patch is not None))
+    return RepairResponse(
+        finding=finding,
+        repair_available=has_repair,
+        tier=resp.tier or (resp_tpl.tier if resp_tpl.repair_available else None),
+        patch=None,
+        validation_error=resp.validation_error or resp_tpl.validation_error,
+        explanation=resp.explanation or resp_tpl.explanation or (explanation if has_repair else None),
+        repair_method=REPAIR_METHOD_CONTEXT_AWARE_HYBRID,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Master Dispatcher
+# ---------------------------------------------------------------------------
+
+def get_candidate_patch(
+    finding: dict,
+    project_root: str,
+    mode: Optional[str] = None,
+) -> RepairResponse:
+    """
+    Generate a candidate patch for a finding according to the requested repair mode.
+
+    Parameters
+    ----------
+    finding      : Finding dictionary.
+    project_root : Absolute path to project root.
+    mode         : Repair mode:
+                   - 'rule_based' (Method 1)
+                   - 'template_based' (Method 2)
+                   - 'llm_based' (Method 3)
+                   - 'context_aware_hybrid' (Method 4, default)
+    """
+    clean_mode = (mode or "context_aware_hybrid").lower().strip()
+
+    if clean_mode in ("rule_based", "rule", "method1", "1"):
+        return get_rule_based_patch(finding, project_root)
+    elif clean_mode in ("template_based", "template", "method2", "2"):
+        return get_template_based_patch(finding, project_root)
+    elif clean_mode in ("llm_based", "llm", "method3", "3"):
+        return get_llm_based_patch(finding, project_root)
+    else:
+        # Default: Method 4 Context-Aware Hybrid
+        return get_hybrid_patch(finding, project_root)
 
 
 # ---------------------------------------------------------------------------

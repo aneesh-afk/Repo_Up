@@ -2,17 +2,14 @@
 
 *Purpose: This file acts as a scratchpad and tracker for the current working session. It logs ongoing changes, completed tasks, and context so that if the session is interrupted, a new agent can seamlessly resume work.*
 
-## Current Status: Phase 5 (Rule-Based Resolution and Safe Auto-Fix Engine)
+## Current Status: Four Repair Modes Implemented & Unified
 
-- **Completed**: Defined `Patch` model in `patch_model.py` with 3 tiers (Deterministic, Suggested, Explanation-Only).
-- **Completed**: Implemented robust 5-step validation for patches: Path-escape check, Line-bounds check, old-text exact match, non-empty result guard, and Tree-sitter parseability check.
-- **Completed**: Created a central `repair_registry.py` tracking repair specs with exact capabilities (autofix availability, determinism).
-- **Completed**: Implemented Tier 1 deterministic fixes for Python (`yaml.safe_load`), JS/TS (`crypto.createHash`), and Java (`MessageDigest.getInstance`).
-- **Completed**: Exposed a `POST /repair` endpoint in `analyze.py` routing logic via `repair_engine.py` without modifying on-disk files. Verification status is locked to `not_verified`.
-- **Completed**: Wrote `validate_repair.py` performing 15 exact-match assertions to prove validation strictness and patching immutability.
-- **Completed**: Integrated a non-intrusive "Suggested Fix" UI in `Results.tsx` allowing humans to review the unified diffs and candidate patches.
-
-- **Next Steps**: Awaiting further instructions. Phase 11 is fully implemented and passes successfully.
+- **Completed Method 1 – Rule-Based Repair**: Uses predefined rules and patterns to identify and fix known vulnerability types (`yaml.load -> yaml.safe_load`, `md5/sha1 -> sha256`).
+- **Completed Method 2 – Template-Based Repair**: Created dedicated `template_engine.py` applying predefined parameterized secure code templates for `SEC-UNSAFE-ASSERT`, `SEC-CWE-703`, `SEC-DANGEROUS-EXEC`, and `SEC-CWE-502`.
+- **Completed Method 3 – LLM-Based Repair**: Implemented minimal-context AI generation via `llm_engine.py` and `provider.py` with strict Tree-sitter parse validation.
+- **Completed Method 4 – Context-Aware Hybrid Repair**: Promoted research AST and Dependency Graph context extractors (`context_builder.py`), cascading through Rule-Based -> Template-Based -> Context-Enriched LLM with isolated sandbox verification.
+- **Completed API & UI Integration**: Updated `POST /repair` to support explicit `mode` parameters and output `repair_method` metadata; updated `Results.tsx` to render mode badges in the Suggested Fix modal.
+- **Tests**: Created `backend/test_four_repair_modes.py` (7/7 passed), `validate_repair.py` (18/18 passed), `test_verification.py` (3/3 passed).
 - **Verified Phase 11 (LLM-Assisted Explanation and Patch Suggestion)**: Created `backend/llm/` containing `provider.py`, `context_builder.py`, and `llm_engine.py`. Integrated LLM-assisted patches natively into the existing Phase 5 validation pipeline (`patch_model.py`) and Phase 6 Verification Sandbox, exposing the logic securely to `backend/routes/repair.py`. Updated `Results.tsx` to handle LLM payloads ("AI-generated suggestion"). Implemented LLM pass@k evaluation in `evaluate_llm.py`.
 - **Verified Phase 10 (Quality Dataset and Provenance Pipeline)**: Created `backend/dataset_pipeline/` establishing the `DatasetRecord` schema (`schema.py`). Built offline ingestion processors (`pipeline.py`) tracing exact origin states and patch validation boundaries. Enforced QA policies via `quality_checks.py`. Outputs structured JSONL/CSV/Markdown formats cleanly excluding secret content. Tested safely on synthetics without external upload or LLMs via `test_dataset_pipeline.py`. Readme updated.
 - **Verified Phase 9 (Cross-Language Benchmark)**: Created `backend/evaluation/generate_datasets.py` to synthesize 25 repositories spanning Python, JS, TS, Java, and C++. Built `run_cross_language_benchmark.py` which computes TP/FP/FN across all datasets and outputs `benchmark_report.md` tracking Language Comparison, Parser Reliability, and Security metrics.

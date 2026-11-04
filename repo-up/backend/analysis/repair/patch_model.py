@@ -33,6 +33,18 @@ TIER_1 = "tier1_deterministic"
 TIER_2 = "tier2_suggested"
 TIER_3 = "tier3_explanation_only"
 
+# Four Core Repair Methods
+REPAIR_METHOD_RULE_BASED = "rule_based"
+REPAIR_METHOD_TEMPLATE_BASED = "template_based"
+REPAIR_METHOD_LLM_BASED = "llm_based"
+REPAIR_METHOD_CONTEXT_AWARE_HYBRID = "context_aware_hybrid"
+ALL_REPAIR_METHODS = (
+    REPAIR_METHOD_RULE_BASED,
+    REPAIR_METHOD_TEMPLATE_BASED,
+    REPAIR_METHOD_LLM_BASED,
+    REPAIR_METHOD_CONTEXT_AWARE_HYBRID,
+)
+
 
 @dataclass
 class Patch:
@@ -52,6 +64,7 @@ class Patch:
     new_text        : Replacement text (empty string = delete).
     description     : Human-readable description of the change.
     verification_status : always "not_verified" until sandbox phase.
+    repair_method   : One of rule_based, template_based, llm_based, context_aware_hybrid
     """
 
     rule_id: str
@@ -66,6 +79,7 @@ class Patch:
     new_text: str
     description: str
     verification_status: str = "not_verified"
+    repair_method: str = REPAIR_METHOD_RULE_BASED
 
     def unified_diff(self, context: int = 3) -> str:
         """Return a unified diff string (no file modification)."""
@@ -96,6 +110,7 @@ class Patch:
             "new_text":             self.new_text,
             "description":          self.description,
             "verification_status":  self.verification_status,
+            "repair_method":        self.repair_method,
             "diff":                 self.unified_diff(),
         }
 

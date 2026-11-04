@@ -598,8 +598,17 @@ export const Results: React.FC<ResultsProps> = ({ data, onReset, onApplyAll }) =
                         </div>
                       )}
                       {patchData && !patchLoading && (
-                        <>
-                          <div className="text-xs text-gray-500 font-mono">{patchData.file} — line {patchData.start_line}</div>
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div className="text-xs text-gray-500 font-mono">{patchData.file} — line {patchData.start_line}</div>
+                            {patchData.repair_method && (
+                              <span className="text-[10px] font-semibold px-2.5 py-0.5 rounded-full bg-[#6D5EF0]/20 border border-[#6D5EF0]/40 text-[#A78BFA]">
+                                {patchData.repair_method === 'rule_based' && 'Method 1: Rule-Based'}
+                                {patchData.repair_method === 'template_based' && 'Method 2: Template-Based'}
+                                {patchData.repair_method === 'llm_based' && 'Method 3: LLM-Based'}
+                                {patchData.repair_method === 'context_aware_hybrid' && 'Method 4: Context-Aware Hybrid'}
+                              </span>
+                            )}
+                          </div>
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                             <div>
                               <div className="text-[10px] uppercase tracking-wider font-bold text-red-400 mb-1">Before</div>
